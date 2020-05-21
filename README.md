@@ -15,7 +15,7 @@ is encrypted with a password. Backup and restore is implemented in backup.elf.
   `20`  | u32           | 1
   `30`  | u8[?]         | firmware version as string
   `50`  | u8[?]         | 'iLO 5 Backup file'
-  `70`  | u8[0x10]      | MD5 hash of something
+  `70`  | u8[0x10]      | MD5 hash of the password
 
 
 ## file list
