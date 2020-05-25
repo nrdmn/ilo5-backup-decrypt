@@ -15,45 +15,22 @@ static void callback(int a, int b, void *c)
 }
 
 static bool myrand_seeded = false;
-static uint32_t myrand_state[2] = {0, 0};
+static uint32_t myrand_state;
 
 static void myrand_seed(const void *buf, int num)
 {
-	int x = *(uint32_t *)buf;
 	myrand_seeded = true;
-	myrand_state[0] = x & 0xffff;
-	myrand_state[1] = (x << 1) >> 0x11;
-}
-
-static unsigned char myrand_get_byte_(uint32_t state[2])
-{
-	// this function is probably wrong
-	uint32_t foo;
-	uint32_t bar;
-
-	foo = state[0] * 0x3aa8 + 0xf4627;
-	bar = state[1] * 0x3aa8 + (foo >> 0x10);
-	foo &= 0xffff;
-	while (bar > 0x78f0) {
-		if (foo < 0x10000) {
-			foo += 0x10000;
-			bar--;
-		}
-		foo -= 0xe079;
-		bar -= 0x78f0;
-	}
-	state[0] = foo;
-	state[1] = bar;
-	return foo >> 4;
+	myrand_state = *(uint32_t *)buf & 0x7fffffff;
 }
 
 static unsigned char myrand_get_byte()
 {
 	if (!myrand_seeded) {
 		myrand_seeded = true;
-		myrand_state[0] = 1;
+		myrand_state = 1;
 	}
-	return myrand_get_byte_(myrand_state);
+	myrand_state = ((uint64_t)myrand_state * 0x3aa8 + 0xf4627) % 0x78f0e079;
+	return myrand_state >> 4;
 }
 
 static int myrand_nopseudo_bytes(unsigned char *buf, int num)
