@@ -71,6 +71,9 @@ first 31 bits to initialize libc's rand(). A function to generate random bytes
 by calling rand()&0xff for every byte is set as OpenSSL's random number generator.
 Using this RNG, a 2048 bit RSA key is generated.
 
+The 8-byte chip id is found at 0x01f20010 or via web interface at
+/xmldata?item=all in <CID> tags.
+
 ```c
     RAND_METHOD ilo_rand = {
         ilo_rand_seed,
