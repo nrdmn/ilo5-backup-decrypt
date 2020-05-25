@@ -12,11 +12,110 @@ is encrypted with a password. Backup and restore is implemented in backup.elf.
 --------|---------------|----------------------
   `00`  | u32           | magic value 0x42fa4c49
   `04`  | u32           | 0x101
+  `08`  | u32           | file size
+  `10`  | u8[0x10]      | MD5 hash of content, see below
   `20`  | u32           | 1
   `30`  | u8[?]         | firmware version as string
   `50`  | u8[?]         | 'iLO 5 Backup file'
   `70`  | u8[0x10]      | MD5 hash of the password
 
+#### content hash
+
+The content MD5 sum is calculated by hashing 0x200 bytes of a repeating
+0x00..0x4c pattern and the content of the encrypted backup file starting at
+offset 0x90.
+
+```c
+    MD5_CTX ctx;
+    char result[16];
+    char buf[0x200];
+    FILE *file = fopen("backup.enc", "r");
+
+    for (int i = 0; i < 0x200; i++) {
+        buf[i] = i % 0x4d;
+    }
+
+    MD5_Init(&ctx);
+    MD5_Update(&ctx, buf, 0x200);
+
+    fseek(file, 0x90, SEEK_SET);
+    while (fread(buf, 1, 0x200, file) != 0) {
+        // NOTE: in case the last fread returns less than 0x200 bytes,
+        // the hash is still calculated over the entire buffer
+        MD5_Update(&ctx, buf, 0x200);
+    }
+
+    MD5_Final(result, &ctx);
+```
+
+### keys
+
+Starting at offset 0x90, five encrypted keys follow:
+
+ offset  | type          | description
+---------|---------------|----------------------
+   `+00` | u8[0x40]      | salt
+   `+40` | u32           | length of encrypted key, big endian
+   `+44` | u8[0x100]     | encrypted key
+  `+144` | u8[0x10]      | iv; it is the same for all five keys
+
+The first key is derived from the BMC's chip id, the second and third from
+data from SMBIOS (if available), all remaining keys are generated from
+random data. There may be facilities to add custom keys.
+
+For encryption, AES 256 CBC is used.
+
+The first key is calculated by generating 0x40 bytes random salt, feeding it
+together with the chip id into OpenSSL's PKCS5_PBKDF2_HMAC and using its result's
+first 31 bits to initialize libc's rand(). A function to generate random bytes
+by calling rand()&0xff for every byte is set as OpenSSL's random number generator.
+Using this RNG, a 2048 bit RSA key is generated.
+
+```c
+    RAND_METHOD ilo_rand = {
+        ilo_rand_seed,
+        ilo_rand_get_bytes,
+        NULL,
+        NULL,
+        NULL,
+        NULL,
+    };
+
+    SSL_library_init();
+    RAND_cleanup();
+    RAND_set_rand_method(&ilo_rand);
+
+    char chip_id[16] = /* chip id */;
+    char salt[0x40] = /* random data */;
+    char pbkdf2_result[0x80];
+    PKCS5_PBKDF2_HMAC(chip_id, 16, salt, 0x40, 0x2f59, EVP_sha384(), 0x80, pbkdf2_result);
+
+    RAND_seed(pbkdf2_result, 4);
+    RSA *key = RSA_generate_key(0x800, 0x10001, NULL, NULL);
+```
+
+iLO's rand() uses a LCG with 31 bits of internal state, yielding values
+between 0 and 0x78f0e07. It has an optimal period length of 0x78f0e079.
+
+```c
+bool rng_seeded = false;
+uint32_t rng_state;
+
+void srand(unsigned int seed)
+{
+    rng_state = seed & 0x7fffffff;
+}
+
+int rand(void)
+{
+    if (!rng_seeded) {
+        rng_seeded = true;
+        rng_state = 1;
+    }
+    rng_state = ((uint64_t)rng_state * 0x3aa8 + 0xf4627) % 0x78f0e079;
+    return rng_state >> 4;
+}
+```
 
 ## file list
 
@@ -117,3 +216,5 @@ iLO 5 firmware 1.40 knows the following files:
  CAC stuff        | /mnt/ilostore/certs | 1cacert.der             | 00000101
  CAC stuff        | /mnt/ilostore/certs | 2cacert.der             | 00000101
  CAC stuff        | /mnt/ilostore/certs | 3cacert.der             | 00000101
+
+The LSB of `flags` means that the file shall not be backuped.
