@@ -120,6 +120,25 @@ int rand(void)
 }
 ```
 
+## content
+
+The encrypted backup file contents are gzip compressed and
+_must start with these eight bytes_: `1f 8b 08 00 00 00 00 00`
+This means that the contents must be deflate compressed, not
+contain the original file name, and not contain the timestamp
+of creation.
+
+The decompressed contents are a packed series of the following structure:
+
+ offset | type          | description
+--------|---------------|----------------------
+  `00`  | u32           | magic value 0x42fa4c49
+  `04`  | u32           | 0x101
+  `08`  | u32           | file length
+  `30`  | u8[32]        | absolute directory path
+  `50`  | u8[32]        | file name
+  `90`  |               | file content
+
 ## file list
 
 iLO 5 firmware 1.40 knows the following files:
